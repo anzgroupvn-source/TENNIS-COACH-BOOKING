@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import { freeSlots, vnToEpoch, vnDateTimeToEpoch, formatVn, withinWorkingHours, toRfc3339Vn } from "../src/time";
 import { splitText } from "../src/zalo";
+import { quotePrivate, describeQuote } from "../src/pricing";
+import { SYSTEM_PROMPT } from "../src/claude";
 import { WORKING_HOURS } from "../src/config";
 import { handleUpdate, type Env } from "../src/index";
 import worker from "../src/index";
@@ -29,6 +31,25 @@ describe("time helpers", () => {
   it("kiểm tra giờ dạy", () => {
     expect(withinWorkingHours(vnToEpoch("2026-11-24", "16:00")!, 90, WORKING_HOURS)).toBe(true);
     expect(withinWorkingHours(vnToEpoch("2026-11-24", "20:30")!, 60, WORKING_HOURS)).toBe(false);
+  });
+
+  it("tính tiền 1 kèm 1 theo bảng phí sân", () => {
+    // Thứ 3 (24/11/2026)
+    expect(quotePrivate(vnToEpoch("2026-11-24", "07:00")!, 60).total).toBe(400_000);
+    expect(quotePrivate(vnToEpoch("2026-11-24", "18:00")!, 60).total).toBe(500_000);
+    // 16:00–18:00 thứ 3: 600k + 100k + 200k
+    const cross = quotePrivate(vnToEpoch("2026-11-24", "16:00")!, 120);
+    expect(cross).toMatchObject({ tuition: 600_000, court: 300_000, total: 900_000 });
+    expect(describeQuote(cross)).toContain("tổng 900k");
+    // Thứ 7 (28/11/2026), Chủ nhật (29/11/2026)
+    expect(quotePrivate(vnToEpoch("2026-11-28", "08:00")!, 60).total).toBe(420_000);
+    expect(quotePrivate(vnToEpoch("2026-11-29", "19:00")!, 120).total).toBe(1_000_000);
+  });
+
+  it("system prompt có đủ bảng giá", () => {
+    for (const t of ["200k/buổi", "300k/giờ", "100k/giờ", "120k/giờ", "200k/giờ", "06:00–21:00", "06:00–17:00"]) {
+      expect(SYSTEM_PROMPT).toContain(t);
+    }
   });
 
   it("chia tin nhắn dài", () => {
@@ -233,6 +254,33 @@ describe("webhook flow", () => {
     const result = calls[1].messages.at(-1).content[0];
     expect(result.is_error).toBe(true);
     expect(f.events).toHaveLength(1);
+  });
+
+  it("ghi danh lớp ghép: ghi Sheet + báo HLV", async () => {
+    const { client, calls } = fakeAnthropic([
+      () => ({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "t1", name: "register_group_class", input: { student_name: "Minh", phone: "0909000111", preferred_schedule: "sáng T2-T4-T6", note: null } } as any],
+      }),
+      () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "Em đã ghi danh ạ" } as any] }),
+    ]);
+    await handleUpdate(textUpdate("cho anh đăng ký lớp ghép"), env, { anthropic: client, now: () => NOW });
+    expect(calls[1].messages.at(-1).content[0].is_error).toBeFalsy();
+    expect(f.googleCalls.some((c) => c.url.includes("sheets") && c.body.values[0][1] === "GHI DANH LỚP GHÉP")).toBe(true);
+    expect(f.zaloSent.some((s) => s.body?.chat_id === "coach-chat" && s.body.text.includes("Minh"))).toBe(true);
+  });
+
+  it("báo giá chạy được khi chưa nối Google", async () => {
+    env.GOOGLE_SHEET_ID = "REPLACE_WITH_SHEET_ID";
+    const { client, calls } = fakeAnthropic([
+      () => ({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "t1", name: "quote_price", input: { start: "2026-11-28T18:00", duration_minutes: 60 } } as any],
+      }),
+      () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "500k ạ" } as any] }),
+    ]);
+    await handleUpdate(textUpdate("tối thứ 7 6h học 1 kèm 1 bao nhiêu"), env, { anthropic: client, now: () => NOW });
+    expect(calls[1].messages.at(-1).content[0].content).toContain("tổng 500k");
   });
 
   it("bỏ qua tin nhắn trùng message_id và trả lời lệnh /id", async () => {

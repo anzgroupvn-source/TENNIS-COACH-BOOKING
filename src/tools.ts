@@ -15,6 +15,7 @@ import {
   WORKING_HOURS,
 } from "./config";
 import type { GoogleClient } from "./google";
+import { describeQuote, quotePrivate } from "./pricing";
 import {
   epochToVnDate,
   epochToVnTime,
@@ -52,6 +53,16 @@ const CreateBooking = z.object({
   duration_minutes: durationSchema,
   student_name: z.string().min(1).max(100),
   phone: z.string().max(30).nullable(),
+  note: z.string().max(500).nullable(),
+});
+const QuotePrice = z.object({
+  start: z.string(),
+  duration_minutes: durationSchema,
+});
+const RegisterGroupClass = z.object({
+  student_name: z.string().min(1).max(100),
+  phone: z.string().min(6).max(30),
+  preferred_schedule: z.string().max(300),
   note: z.string().max(500).nullable(),
 });
 const CancelBooking = z.object({
@@ -103,6 +114,43 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: "quote_price",
+    description:
+      "Tính chính xác tiền một buổi học 1 kèm 1 (học phí + phí sân theo giờ và ngày). " +
+      "Luôn dùng công cụ này khi báo giá buổi 1 kèm 1 cụ thể, không tự nhẩm.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        start: { type: "string", description: "Giờ bắt đầu, dạng YYYY-MM-DDTHH:mm theo giờ Việt Nam." },
+        duration_minutes: { type: "integer", description: `Thời lượng (phút): ${LESSON_DURATIONS.join(", ")}.` },
+      },
+      required: ["start", "duration_minutes"],
+    },
+  },
+  {
+    name: "register_group_class",
+    description:
+      "Ghi danh học viên vào LỚP GHÉP (HLV sẽ tự xếp lớp và liên hệ lại). " +
+      "Chỉ gọi khi đã có tên, số điện thoại và khung giờ/ngày mong muốn, và học viên đã xác nhận.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        student_name: { type: "string", description: "Tên học viên." },
+        phone: { type: "string", description: "Số điện thoại để HLV liên hệ xếp lớp." },
+        preferred_schedule: {
+          type: "string",
+          description: "Ngày/khung giờ mong muốn trong khoảng 06:00–17:00, vd 'sáng T2-T4-T6 khoảng 7h'.",
+        },
+        note: { type: ["string", "null"], description: "Trình độ, mục tiêu, số người đi cùng... hoặc null." },
+      },
+      required: ["student_name", "phone", "preferred_schedule", "note"],
+    },
+  },
+  {
     name: "list_my_bookings",
     description: "Liệt kê các buổi học sắp tới mà chính người đang chat đã đặt (kèm mã lịch để huỷ).",
     strict: true,
@@ -131,6 +179,18 @@ type ToolResult = { content: string; isError?: boolean };
 const err = (content: string): ToolResult => ({ content, isError: true });
 
 export async function runTool(name: string, input: unknown, ctx: ToolContext): Promise<ToolResult> {
+  if (name === "quote_price") {
+    const p = QuotePrice.safeParse(input);
+    if (!p.success) return err(`Tham số không hợp lệ: ${p.error.message}`);
+    const start = vnDateTimeToEpoch(p.data.start);
+    if (start === null) return err("Giờ bắt đầu không hợp lệ, cần dạng YYYY-MM-DDTHH:mm.");
+    return { content: `Buổi 1 kèm 1 ${formatVn(start)}, ${p.data.duration_minutes} phút: ${describeQuote(quotePrivate(start, p.data.duration_minutes))}` };
+  }
+  if (name === "register_group_class") {
+    const p = RegisterGroupClass.safeParse(input);
+    if (!p.success) return err(`Tham số không hợp lệ: ${p.error.message}`);
+    return await registerGroupClass(p.data, ctx);
+  }
   if (!ctx.google) {
     return err("Hệ thống đặt lịch chưa được cấu hình. Hãy xin lỗi và đề nghị học viên nhắn trực tiếp cho HLV.");
   }
@@ -224,8 +284,10 @@ async function createBooking(
     return err("Giờ này vừa có người khác đặt hoặc HLV bận. Hãy kiểm tra lại giờ trống và đề xuất giờ khác.");
 
   const when = `${formatVn(start)}–${epochToVnTime(end)}`;
+  const price = describeQuote(quotePrivate(start, p.duration_minutes));
   const description = [
     `Học viên: ${p.student_name}`,
+    `Học phí dự kiến: ${price}`,
     `Zalo: ${ctx.zaloDisplayName} (${ctx.zaloUserId})`,
     p.phone ? `SĐT: ${p.phone}` : null,
     p.note ? `Ghi chú: ${p.note}` : null,
@@ -234,7 +296,7 @@ async function createBooking(
     .filter(Boolean)
     .join("\n");
   const event = await google.createEvent({
-    summary: `🎾 ${p.student_name} (${p.duration_minutes}')`,
+    summary: `🎾 1 kèm 1: ${p.student_name} (${p.duration_minutes}')`,
     description,
     start: toRfc3339Vn(start),
     end: toRfc3339Vn(end),
@@ -256,11 +318,11 @@ async function createBooking(
       p.note ?? "",
     ]),
     ctx.notifyCoach(
-      `📅 Lịch mới: ${p.student_name}\n${when}${p.phone ? `\nSĐT: ${p.phone}` : ""}${p.note ? `\nGhi chú: ${p.note}` : ""}`,
+      `📅 Lịch 1 kèm 1 mới: ${p.student_name}\n${when}\n${price}${p.phone ? `\nSĐT: ${p.phone}` : ""}${p.note ? `\nGhi chú: ${p.note}` : ""}`,
     ),
   ]);
 
-  return { content: `Đã đặt thành công. Mã lịch: ${event.id}. Thời gian: ${when}.` };
+  return { content: `Đã đặt thành công. Mã lịch: ${event.id}. Thời gian: ${when}. ${price}.` };
 }
 
 async function listMyBookings(ctx: ToolContext, google: GoogleClient): Promise<ToolResult> {
@@ -317,4 +379,29 @@ async function cancelBooking(
     ),
   ]);
   return { content: `Đã huỷ buổi học ${formatVn(start)}.` };
+}
+
+async function registerGroupClass(p: z.infer<typeof RegisterGroupClass>, ctx: ToolContext): Promise<ToolResult> {
+  const now = ctx.now();
+  const results = await Promise.allSettled([
+    ctx.google?.appendRow([
+      new Date(now).toISOString(),
+      "GHI DANH LỚP GHÉP",
+      "",
+      p.student_name,
+      p.phone,
+      ctx.zaloDisplayName,
+      ctx.zaloUserId,
+      p.preferred_schedule,
+      "",
+      p.note ?? "",
+    ]) ?? Promise.reject(new Error("no sheet")),
+    ctx.notifyCoach(
+      `👥 Ghi danh lớp ghép: ${p.student_name}\nSĐT: ${p.phone}\nMong muốn: ${p.preferred_schedule}${p.note ? `\nGhi chú: ${p.note}` : ""}\nZalo: ${ctx.zaloDisplayName}`,
+    ),
+  ]);
+  if (results.every((r) => r.status === "rejected")) {
+    return err("Chưa ghi nhận được do lỗi hệ thống. Xin lỗi và đề nghị học viên nhắn trực tiếp HLV.");
+  }
+  return { content: "Đã ghi danh lớp ghép. HLV sẽ xếp lớp và liên hệ lại học viên qua số điện thoại/Zalo." };
 }

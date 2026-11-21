@@ -15,6 +15,8 @@ Học viên (Zalo) ──► Zalo Bot Platform ──webhook──► Cloudflare
 |---|---|
 | Hỏi về tennis, học phí, địa điểm | Trả lời theo thông tin trong `src/config.ts` |
 | "Thứ 7 này còn giờ nào không?" | Xem lịch Google Calendar và báo các giờ còn trống |
+| "Học 1 kèm 1 tối thứ 7 bao nhiêu?" | Tính chính xác học phí 300k/giờ + phí sân theo ngày/giờ |
+| "Cho em đăng ký lớp ghép" | Lấy tên, SĐT, khung giờ mong muốn → ghi Sheet + báo HLV để HLV xếp lớp |
 | "Chốt 17h thứ 3, tên Lan" | Tóm tắt lại, chờ học viên xác nhận rồi tạo lịch, báo HLV và ghi vào Sheet |
 | "Huỷ buổi thứ 3 giúp em" | Huỷ lịch của chính người đó (phải huỷ trước 12 tiếng), báo HLV |
 | `/id` | Trả về chat_id (dùng để lấy ID Zalo của HLV) |
@@ -113,7 +115,8 @@ cp .dev.vars.example .dev.vars && npm run dev   # chạy local
 |---|---|
 | `src/index.ts` | Nhận webhook, các lệnh `/id` và `/reset`, các trang admin |
 | `src/claude.ts` | System prompt, vòng gọi Claude, lưu lịch sử hội thoại trong KV |
-| `src/tools.ts` | Các công cụ: xem giờ trống, đặt, xem và huỷ lịch |
+| `src/tools.ts` | Các công cụ: xem giờ trống, báo giá, đặt/xem/huỷ lịch 1 kèm 1, ghi danh lớp ghép |
+| `src/pricing.ts` | Tính học phí + phí sân |
 | `src/google.ts` | Google Calendar và Sheets (service account) |
 | `src/zalo.ts` | Zalo Bot API |
 | `src/config.ts` | **Thông tin kinh doanh: anh/chị sửa file này** |

@@ -98,9 +98,8 @@ export async function handleUpdate(update: ZaloUpdate, env: Env, deps: { anthrop
     google: makeGoogle(env),
     now,
     notifyCoach: async (t) => {
-      if (env.COACH_ZALO_CHAT_ID && env.COACH_ZALO_CHAT_ID !== chatId) {
-        await bot.sendText(env.COACH_ZALO_CHAT_ID, t);
-      }
+      if (!env.COACH_ZALO_CHAT_ID) throw new Error("COACH_ZALO_CHAT_ID chưa cấu hình");
+      if (env.COACH_ZALO_CHAT_ID !== chatId) await bot.sendText(env.COACH_ZALO_CHAT_ID, t);
     },
   };
 
