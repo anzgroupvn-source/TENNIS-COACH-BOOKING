@@ -4,10 +4,9 @@ compatibility_date = "2026-11-01"
 compatibility_flags = ["nodejs_compat"]
 
 # Lưu lịch sử hội thoại + chống xử lý trùng tin nhắn.
-# Tạo bằng: npx wrangler kv namespace create BOT_KV  -> dán id vào đây.
+# Không cần điền id: Wrangler tự tạo KV namespace ở lần deploy đầu tiên.
 [[kv_namespaces]]
 binding = "BOT_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
 
 [vars]
 # Model Claude. Mặc định Opus 5.5; muốn rẻ hơn có thể đổi sang "claude-haiku-5-5".
@@ -23,9 +22,10 @@ GOOGLE_SHEET_TAB = "Bookings"
 # Zalo chat_id của HLV để nhận thông báo đặt/huỷ lịch (nhắn "/id" cho bot để lấy). Để trống = không báo.
 COACH_ZALO_CHAT_ID = ""
 
-# Các bí mật — KHÔNG ghi vào file này, đặt bằng `npx wrangler secret put <TÊN>`:
+# Các bí mật — KHÔNG ghi vào file này. Đặt trên trang Cloudflare (Settings → Variables and Secrets)
+# hoặc bằng `npx wrangler secret put <TÊN>`:
 #   ZALO_BOT_TOKEN               token bot Zalo
-#   ZALO_WEBHOOK_SECRET          chuỗi ngẫu nhiên 8–256 ký tự (Zalo gửi kèm header X-Bot-Api-Secret-Token)
-#   ADMIN_KEY                    chuỗi ngẫu nhiên để gọi /admin/set-webhook
+#   ADMIN_KEY                    chuỗi tự đặt để mở trang /admin/...
+#   ZALO_WEBHOOK_SECRET          (tuỳ chọn) nếu bỏ trống sẽ tự sinh từ token bot
 #   ANTHROPIC_API_KEY            khoá Claude API
 #   GOOGLE_SERVICE_ACCOUNT_JSON  toàn bộ nội dung file JSON của service account Google

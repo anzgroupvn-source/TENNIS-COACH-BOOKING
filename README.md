@@ -26,7 +26,22 @@ Các quy tắc như giờ dạy, giờ đặt tối thiểu và chống đặt t
 
 ---
 
-## Hướng dẫn cài đặt (khoảng 30–45 phút)
+## Cách deploy nhanh nhất: nối GitHub với Cloudflare (không cần dòng lệnh)
+
+1. Vào https://dash.cloudflare.com, chọn **Workers & Pages** rồi bấm **Create application**.
+2. Chọn **Import a repository** (hoặc **Continue with GitHub**) và cho phép Cloudflare truy cập repo `TENNIS-COACH-BOOKING`.
+3. Chọn repo. Ở **Project name** đặt đúng `tennis-coach-bot`, các mục khác giữ mặc định, rồi bấm **Deploy**.
+4. Chờ build xong (1–2 phút). Cloudflare tự tạo KV và hiện link dạng `https://tennis-coach-bot.<tên>.workers.dev`.
+5. Mở Worker vừa tạo, vào **Settings → Variables and Secrets → Add**, chọn kiểu **Secret** và thêm lần lượt:
+   - `ZALO_BOT_TOKEN`: token bot Zalo
+   - `ANTHROPIC_API_KEY`: khoá Claude API `sk-ant-...`
+   - `ADMIN_KEY`: tự đặt một chuỗi khó đoán, ít nhất 16 ký tự
+6. Mở `https://tennis-coach-bot.<tên>.workers.dev/admin/set-webhook?key=<ADMIN_KEY>` để nối bot Zalo với Worker.
+7. Nhắn thử cho bot trên Zalo.
+
+Từ đó, mỗi lần code trên GitHub được cập nhật, Cloudflare sẽ tự deploy lại.
+
+## Hướng dẫn cài đặt bằng dòng lệnh (khoảng 30–45 phút)
 
 ### Bước 1: Tạo khoá Claude API
 1. Vào https://console.anthropic.com và đăng ký bằng email công ty.
@@ -53,7 +68,6 @@ Máy cần cài Node.js 20 trở lên.
 ```bash
 npm install
 npx wrangler login                       # đăng nhập Cloudflare (tạo tài khoản miễn phí nếu chưa có)
-npx wrangler kv namespace create BOT_KV  # copy "id" vào wrangler.toml thay cho REPLACE_WITH_KV_NAMESPACE_ID
 ```
 
 Sửa `wrangler.toml`: điền `GOOGLE_CALENDAR_ID` và `GOOGLE_SHEET_ID`.
@@ -61,7 +75,6 @@ Sửa `wrangler.toml`: điền `GOOGLE_CALENDAR_ID` và `GOOGLE_SHEET_ID`.
 Đặt các biến bí mật. Mỗi lệnh sẽ hỏi giá trị, anh/chị dán vào rồi Enter:
 ```bash
 npx wrangler secret put ZALO_BOT_TOKEN               # token bot Zalo
-npx wrangler secret put ZALO_WEBHOOK_SECRET          # tự đặt chuỗi ngẫu nhiên, vd 32 ký tự
 npx wrangler secret put ADMIN_KEY                    # tự đặt chuỗi ngẫu nhiên khác
 npx wrangler secret put ANTHROPIC_API_KEY            # khoá sk-ant-...
 npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON < duong-dan/file-service-account.json
@@ -94,7 +107,7 @@ Sửa `src/config.ts`, gồm giới thiệu HLV, địa điểm, học phí, gi�
 
 ## Bảo mật
 - **Không bao giờ** ghi token, API key hay file JSON vào code hoặc commit lên GitHub. Tất cả được lưu bằng `wrangler secret`.
-- Webhook chỉ nhận request có header `X-Bot-Api-Secret-Token` đúng với `ZALO_WEBHOOK_SECRET`.
+- Webhook chỉ nhận request có header `X-Bot-Api-Secret-Token` khớp với secret của webhook. Secret này tự sinh từ token bot, hoặc lấy từ `ZALO_WEBHOOK_SECRET` nếu có đặt.
 - Học viên chỉ xem và huỷ được lịch do chính tài khoản Zalo của mình đặt.
 - Nếu token bot bị lộ: vào [Zalo Bot Creator](https://zalo.me/s/botcreator/), chọn **Thiết lập → Reset token**, chạy lại `wrangler secret put ZALO_BOT_TOKEN` rồi mở lại `/admin/set-webhook`.
 

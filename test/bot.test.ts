@@ -5,7 +5,7 @@ import { splitText } from "../src/zalo";
 import { quotePrivate, describeQuote } from "../src/pricing";
 import { SYSTEM_PROMPT } from "../src/claude";
 import { WORKING_HOURS } from "../src/config";
-import { handleUpdate, type Env } from "../src/index";
+import { handleUpdate, webhookSecret, type Env } from "../src/index";
 import worker from "../src/index";
 
 // Thứ 7, 21/11/2026 08:00 giờ VN
@@ -187,6 +187,25 @@ describe("webhook flow", () => {
     });
     const res = await worker.fetch(req, env, { waitUntil() {}, passThroughOnException() {} } as any);
     expect(res.status).toBe(403);
+  });
+
+  it("secret webhook tự sinh từ token khi không đặt ZALO_WEBHOOK_SECRET", async () => {
+    delete env.ZALO_WEBHOOK_SECRET;
+    const secret = await webhookSecret(env);
+    expect(secret).toHaveLength(48);
+    const exec = { waitUntil() {}, passThroughOnException() {} } as any;
+    const ok = await worker.fetch(
+      new Request("https://bot.example/webhook", { method: "POST", headers: { "X-Bot-Api-Secret-Token": secret }, body: JSON.stringify(textUpdate("hi")) }),
+      env,
+      exec,
+    );
+    expect(ok.status).toBe(200);
+    const bad = await worker.fetch(
+      new Request("https://bot.example/webhook", { method: "POST", headers: { "X-Bot-Api-Secret-Token": "x" }, body: "{}" }),
+      env,
+      exec,
+    );
+    expect(bad.status).toBe(403);
   });
 
   it("đặt lịch end-to-end: xem giờ trống -> đặt -> báo HLV -> lưu lịch sử", async () => {

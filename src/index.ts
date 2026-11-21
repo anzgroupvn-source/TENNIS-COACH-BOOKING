@@ -13,7 +13,8 @@ import { ZaloBot, type ZaloUpdate } from "./zalo";
 
 export interface Env extends ChatEnv {
   ZALO_BOT_TOKEN: string;
-  ZALO_WEBHOOK_SECRET: string;
+  /** Tuỳ chọn. Nếu không đặt, tự sinh từ ZALO_BOT_TOKEN. */
+  ZALO_WEBHOOK_SECRET?: string;
   ADMIN_KEY: string;
   GOOGLE_SERVICE_ACCOUNT_JSON?: string;
   GOOGLE_CALENDAR_ID?: string;
@@ -31,6 +32,13 @@ function timingSafeEqual(a: string, b: string): boolean {
   let diff = 0;
   for (let i = 0; i < ea.length; i++) diff |= ea[i]! ^ eb[i]!;
   return diff === 0;
+}
+
+/** Secret cho webhook: dùng ZALO_WEBHOOK_SECRET nếu có, không thì băm từ token bot (đổi token = đổi secret). */
+export async function webhookSecret(env: Env): Promise<string> {
+  if (env.ZALO_WEBHOOK_SECRET) return env.ZALO_WEBHOOK_SECRET;
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`zalo-webhook:${env.ZALO_BOT_TOKEN}`));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 48);
 }
 
 function json(data: unknown, status = 200) {
@@ -122,7 +130,7 @@ export default {
 
     if (url.pathname === "/webhook" && request.method === "POST") {
       const secret = request.headers.get("X-Bot-Api-Secret-Token") ?? "";
-      if (!env.ZALO_WEBHOOK_SECRET || !timingSafeEqual(secret, env.ZALO_WEBHOOK_SECRET)) {
+      if (!env.ZALO_BOT_TOKEN || !timingSafeEqual(secret, await webhookSecret(env))) {
         return json({ message: "Unauthorized" }, 403);
       }
       let body: ZaloUpdate & { result?: ZaloUpdate };
@@ -147,7 +155,7 @@ export default {
       if (url.pathname === "/admin/set-webhook") {
         const webhookUrl = `${url.origin}/webhook`;
         try {
-          return json({ webhookUrl, result: await bot.setWebhook(webhookUrl, env.ZALO_WEBHOOK_SECRET) });
+          return json({ webhookUrl, result: await bot.setWebhook(webhookUrl, await webhookSecret(env)) });
         } catch (e) {
           return json({ error: String(e) }, 500);
         }
