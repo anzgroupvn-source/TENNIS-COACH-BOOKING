@@ -1,0 +1,51 @@
+# Tự deploy bot lên Cloudflare Workers mỗi khi code thay đổi.
+# Cần các secret trong GitHub: Settings → Secrets and variables → Actions (xem README, mục "Deploy bằng GitHub Actions").
+name: Deploy bot lên Cloudflare
+
+on:
+  push:
+    branches: [main, ccr-c92607b4-honqkd, claude/dreamy-babbage-e3p9p3]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-cloudflare
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cài thư viện
+        run: npm ci
+
+      - name: Kiểm tra code và chạy test
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Deploy, đặt bí mật, nối webhook Zalo
+        run: node scripts/ci-deploy.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ZALO_BOT_TOKEN: ${{ secrets.ZALO_BOT_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          ZALO_WEBHOOK_SECRET: ${{ secrets.ZALO_WEBHOOK_SECRET }}
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+          VAR_GOOGLE_CALENDAR_ID: ${{ vars.GOOGLE_CALENDAR_ID }}
+          VAR_GOOGLE_SHEET_ID: ${{ vars.GOOGLE_SHEET_ID }}
+          VAR_COACH_ZALO_CHAT_ID: ${{ vars.COACH_ZALO_CHAT_ID }}
+          VAR_CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}
+          WRANGLER_SEND_METRICS: "false"

@@ -48,6 +48,27 @@ Các quy tắc như giờ dạy, giờ đặt tối thiểu và chống đặt t
    - Lấy **ID Sheet**, là đoạn giữa `/d/` và `/edit` trong URL.
 
 ### Bước 3: Deploy lên Cloudflare Workers (miễn phí)
+
+#### Cách A (khuyên dùng): GitHub Actions tự deploy, không cần cài gì trên máy
+Mỗi lần code thay đổi, GitHub tự kiểm tra, deploy, tạo KV, đặt các khoá bí mật và nối webhook Zalo (gộp luôn Bước 4).
+
+1. **Tạo token Cloudflare:** vào https://dash.cloudflare.com/profile/api-tokens, chọn **Create Token**, ở mẫu **Edit Cloudflare Workers** bấm **Use template**. Chọn tài khoản ở **Account Resources**, chọn **All zones** ở **Zone Resources**, rồi bấm **Continue to summary → Create Token**. Chỉ copy đúng chuỗi token: không lấy câu lệnh `curl`, không dùng Global API Key.
+2. Nếu tài khoản Cloudflare mới tạo, mở **Workers & Pages** một lần để Cloudflare tạo địa chỉ `workers.dev`.
+3. Trên GitHub, mở repo, vào **Settings → Secrets and variables → Actions → New repository secret** và thêm các secret sau:
+
+   | Secret | Bắt buộc | Giá trị |
+   |---|---|---|
+   | `CLOUDFLARE_API_TOKEN` | ✅ | token ở bước 1 |
+   | `ZALO_BOT_TOKEN` | ✅ | token bot Zalo |
+   | `ANTHROPIC_API_KEY` | ✅ | khoá `sk-ant-...` |
+   | `GOOGLE_SERVICE_ACCOUNT_JSON` | khi cần đặt lịch | dán toàn bộ nội dung file JSON |
+   | `CLOUDFLARE_ACCOUNT_ID` | chỉ khi có nhiều tài khoản Cloudflare | ID tài khoản |
+   | `ADMIN_KEY`, `ZALO_WEBHOOK_SECRET` | không | nếu bỏ trống, mỗi lần deploy hệ thống tự sinh mới |
+
+4. Ở tab **Variables** (ngay cạnh tab **Secrets**), thêm các giá trị không bí mật khi đã có: `GOOGLE_CALENDAR_ID`, `GOOGLE_SHEET_ID`, `COACH_ZALO_CHAT_ID`. Không cần sửa `wrangler.toml`.
+5. Vào tab **Actions → Deploy bot lên Cloudflare**, mở lần chạy gần nhất và bấm **Re-run all jobs** (hoặc chỉ cần đẩy code mới). Phần **Summary** của lần chạy sẽ báo địa chỉ bot và trạng thái của từng phần: token, bot Zalo, webhook, khoá Claude, Google.
+
+#### Cách B: deploy từ máy tính
 Máy cần cài Node.js 20 trở lên.
 
 ```bash
@@ -121,3 +142,4 @@ cp .dev.vars.example .dev.vars && npm run dev   # chạy local
 | `src/zalo.ts` | Zalo Bot API |
 | `src/config.ts` | **Thông tin kinh doanh: anh/chị sửa file này** |
 | `src/time.ts` | Xử lý giờ Việt Nam |
+| `scripts/ci-deploy.mjs`, `.github/workflows/deploy.yml` | Tự deploy bằng GitHub Actions |
