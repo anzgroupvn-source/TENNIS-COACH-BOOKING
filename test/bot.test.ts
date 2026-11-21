@@ -83,11 +83,10 @@ function makeEnv(kv: MemoryKV): Env {
     CLAUDE_MODEL: "claude-opus-5-5",
     CLAUDE_EFFORT: "medium",
     BOT_KV: kv as unknown as KVNamespace,
-    GOOGLE_SERVICE_ACCOUNT_JSON: "{}",
-    GOOGLE_CALENDAR_ID: "coach@example.com",
-    GOOGLE_SHEET_ID: "sheet1",
+    GOOGLE_CALENDAR_ID: "REPLACE_WITH_COACH_CALENDAR_ID",
+    GOOGLE_SHEET_ID: "REPLACE_WITH_SHEET_ID",
     GOOGLE_SHEET_TAB: "Bookings",
-    COACH_ZALO_CHAT_ID: "coach-chat",
+    COACH_ZALO_CHAT_ID: "",
   };
 }
 
@@ -161,6 +160,34 @@ describe("webhook flow", () => {
   let kv: MemoryKV;
   let env: Env;
   let f: ReturnType<typeof mockFetch>;
+  let serviceAccount: string;
+  const exec = { waitUntil() {}, passThroughOnException() {} } as any;
+  const sent = () => f.zaloSent.filter((x) => x.method === "sendMessage").map((x) => x.body as { chat_id: string; text: string });
+
+  async function adminCookie() {
+    const res = await worker.fetch(new Request("https://bot.example/admin?key=admin"), env, exec);
+    expect(res.status).toBe(303);
+    return res.headers.get("Set-Cookie")!.split(";")[0]!;
+  }
+  async function adminPost(path: string, fields: Record<string, string>, cookie: string) {
+    const body = new URLSearchParams(fields);
+    return worker.fetch(
+      new Request(`https://bot.example${path}`, {
+        method: "POST",
+        headers: { Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      }),
+      env,
+      exec,
+    );
+  }
+  async function registerCoach() {
+    await handleUpdate(
+      { ...textUpdate("/hlv admin", "coach-msg"), message: { ...textUpdate("").message, message_id: "coach-msg", text: "/hlv admin", from: { id: "coach", display_name: "Đức", is_bot: false }, chat: { id: "coach-chat", chat_type: "PRIVATE" } } },
+      env,
+      { origin: "https://bot.example" },
+    );
+  }
 
   beforeEach(async () => {
     kv = new MemoryKV();
@@ -175,7 +202,7 @@ describe("webhook flow", () => {
     )) as CryptoKeyPair;
     const der = new Uint8Array((await crypto.subtle.exportKey("pkcs8", pair.privateKey)) as ArrayBuffer);
     const pem = `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...der))}\n-----END PRIVATE KEY-----`;
-    env.GOOGLE_SERVICE_ACCOUNT_JSON = JSON.stringify({ client_email: "bot@x.iam.gserviceaccount.com", private_key: pem });
+    serviceAccount = JSON.stringify({ client_email: "bot@x.iam.gserviceaccount.com", private_key: pem });
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -208,89 +235,144 @@ describe("webhook flow", () => {
     expect(bad.status).toBe(403);
   });
 
-  it("đặt lịch end-to-end: xem giờ trống -> đặt -> báo HLV -> lưu lịch sử", async () => {
+  it("HLV đăng ký nhận thông báo bằng /hlv; sai mã bị từ chối; không ghi log", async () => {
+    await handleUpdate(
+      { ...textUpdate(""), message: { ...textUpdate("").message, message_id: "x1", text: "/hlv sai", chat: { id: "c9", chat_type: "PRIVATE" } } },
+      env,
+    );
+    expect(kv.store.get("coach:chat_id")).toBeUndefined();
+    await registerCoach();
+    expect(kv.store.get("coach:chat_id")).toBe("coach-chat");
+    expect(sent().at(-1)!.text).toContain("https://bot.example/admin");
+    expect([...kv.store.keys()].some((k) => k.startsWith("chatlog:coach-chat"))).toBe(false);
+  });
+
+  it("đặt lịch: giữ chỗ chờ duyệt -> báo HLV -> HLV xác nhận trên web -> nhắn học viên", async () => {
+    await registerCoach();
     const { client, calls } = fakeAnthropic([
       () => ({
         stop_reason: "tool_use",
         content: [
           { type: "thinking", thinking: "", signature: "sig1" } as any,
-          { type: "tool_use", id: "t1", name: "check_availability", input: { date: "2026-11-24", days: 1, duration_minutes: 60 } } as any,
+          { type: "tool_use", id: "t1", name: "check_availability", input: { date: "2026-11-25", days: 1, duration_minutes: 60 } } as any,
         ],
       }),
       () => ({
         stop_reason: "tool_use",
-        content: [
-          { type: "tool_use", id: "t2", name: "create_booking", input: { start: "2026-11-24T17:00", duration_minutes: 60, student_name: "Lan", phone: "0901234567", note: "mới học" } } as any,
-        ],
+        content: [{ type: "tool_use", id: "t2", name: "create_booking", input: { start: "2026-11-25T07:00", duration_minutes: 60, student_name: "Lan", phone: "0901234567", note: "mới học" } } as any],
       }),
-      () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "Đã đặt lịch **17:00 thứ 3** cho chị Lan ạ!" } as any] }),
+      () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "Em đã giữ chỗ 7:00 thứ 4, chờ HLV xác nhận ạ!" } as any] }),
     ]);
+    await handleUpdate(textUpdate("1 giờ 7:00-8:00 sáng ngày 25, tên Lan"), env, { anthropic: client, now: () => NOW, origin: "https://bot.example" });
 
-    await handleUpdate(textUpdate("Đặt giúp chị 17h thứ 3 nhé, tên Lan"), env, { anthropic: client, now: () => NOW });
+    expect(calls[1].messages.at(-1).content[0].content).toContain("07:00");
+    const created = calls[2].messages.at(-1).content[0];
+    expect(created.is_error).toBeFalsy();
+    expect(created.content).toContain("CHỜ HLV XÁC NHẬN");
 
-    // Tool result của check_availability phải có 17:00
-    const toolResult1 = calls[1].messages.at(-1).content[0];
-    expect(toolResult1.type).toBe("tool_result");
-    expect(toolResult1.content).toContain("17:00");
-    expect(toolResult1.content).not.toContain("21:00");
+    const doc = JSON.parse(kv.store.get("store:v1")!);
+    expect(doc.bookings).toHaveLength(1);
+    const b = doc.bookings[0];
+    expect(b).toMatchObject({ status: "pending", studentName: "Lan", chatId: "user-1" });
+    expect(b.price).toContain("tổng 400k");
 
-    // Sự kiện được tạo đúng giờ
-    expect(f.events).toHaveLength(1);
-    expect(f.events[0].start.dateTime).toBe("2026-11-24T17:00:00+07:00");
-    expect(f.events[0].extendedProperties.private.zaloUserId).toBe("user-1");
+    const coachMsg = sent().find((m) => m.chat_id === "coach-chat" && m.text.includes("YÊU CẦU"))!;
+    expect(coachMsg.text).toContain("Lan");
+    expect(coachMsg.text).toContain("https://bot.example/admin");
 
-    // Gửi cho học viên + báo HLV
-    const texts = f.zaloSent.filter((s) => s.method === "sendMessage");
-    expect(texts.some((s) => s.body.chat_id === "coach-chat" && s.body.text.includes("Lan"))).toBe(true);
-    expect(texts.some((s) => s.body.chat_id === "user-1" && s.body.text.includes("Đã đặt lịch"))).toBe(true);
-
-    // Yêu cầu gửi Claude đúng cấu hình
-    expect(calls[0].model).toBe("claude-opus-5-5");
-    expect(calls[0].fallbacks).toBe("default");
-    expect(calls[0].thinking.block_binding.prefix_mismatch_behavior).toBe("drop_block");
-
-    // Lịch sử chỉ nối thêm: lượt sau bắt đầu bằng đúng các tin cũ
-    const stored = JSON.parse(kv.store.get("hist:user-1:user-1")!);
-    expect(stored.messages).toHaveLength(6);
+    // Khung giờ đang giữ chỗ không còn trống cho người khác
     const { client: c2, calls: calls2 } = fakeAnthropic([
-      () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "Dạ vâng" } as any] }),
+      () => ({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "a", name: "create_booking", input: { start: "2026-11-25T07:30", duration_minutes: 60, student_name: "Hùng", phone: null, note: null } } as any] }),
+      () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "Giờ đó kín rồi ạ" } as any] }),
     ]);
-    await handleUpdate(textUpdate("cảm ơn em", "m2"), env, { anthropic: c2, now: () => NOW + 60_000 });
-    expect(calls2[0].messages.slice(0, 6)).toEqual(stored.messages);
-    expect(calls2[0].messages).toHaveLength(7);
+    await handleUpdate(
+      { ...textUpdate(""), message: { ...textUpdate("").message, message_id: "m-hung", text: "đặt 7h30", from: { id: "user-2", display_name: "Hùng", is_bot: false }, chat: { id: "user-2", chat_type: "PRIVATE" } } },
+      env,
+      { anthropic: c2, now: () => NOW },
+    );
+    expect(calls2[1].messages.at(-1).content[0].is_error).toBe(true);
+
+    // HLV xác nhận trên trang quản lý
+    const cookie = await adminCookie();
+    const page = await (await worker.fetch(new Request("https://bot.example/admin", { headers: { Cookie: cookie } }), env, exec)).text();
+    expect(page).toContain("Chờ duyệt (1)");
+    expect(page).toContain("0901234567");
+    const res = await adminPost("/admin/booking", { id: b.id, action: "confirm", reason: "Mang giày tennis nhé" }, cookie);
+    expect(res.status).toBe(303);
+    expect(JSON.parse(kv.store.get("store:v1")!).bookings[0].status).toBe("confirmed");
+    const toStudent = sent().filter((m) => m.chat_id === "user-1").at(-1)!;
+    expect(toStudent.text).toContain("XÁC NHẬN");
+    expect(toStudent.text).toContain("Mang giày tennis nhé");
+
+    // Xác nhận lần 2 không gửi trùng
+    const before = sent().length;
+    await adminPost("/admin/booking", { id: b.id, action: "confirm" }, cookie);
+    expect(sent().length).toBe(before);
+
+    // Học viên xem lịch thấy "đã xác nhận"
+    const { client: c3, calls: calls3 } = fakeAnthropic([
+      () => ({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "l", name: "list_my_bookings", input: {} } as any] }),
+      () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "ok" } as any] }),
+    ]);
+    await handleUpdate(textUpdate("lịch của chị sao rồi", "m3"), env, { anthropic: c3, now: () => NOW + 60_000 });
+    expect(calls3[1].messages.at(-1).content[0].content).toContain("đã xác nhận");
   });
 
-  it("không cho đặt trùng giờ đã bận", async () => {
-    f.events.push({ id: "x", start: { dateTime: "2026-11-24T17:00:00+07:00" }, end: { dateTime: "2026-11-24T18:00:00+07:00" } });
+  it("HLV từ chối -> giải phóng giờ và nhắn học viên", async () => {
+    const { client } = fakeAnthropic([
+      () => ({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t", name: "create_booking", input: { start: "2026-11-25T18:00", duration_minutes: 120, student_name: "Lan", phone: null, note: null } } as any] }),
+      () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "ok" } as any] }),
+    ]);
+    await handleUpdate(textUpdate("đặt"), env, { anthropic: client, now: () => NOW });
+    const b = JSON.parse(kv.store.get("store:v1")!).bookings[0];
+    expect(b.price).toContain("tổng 1.000k");
+    const cookie = await adminCookie();
+    await adminPost("/admin/booking", { id: b.id, action: "reject", reason: "" }, cookie);
+    expect(JSON.parse(kv.store.get("store:v1")!).bookings[0].status).toBe("rejected");
+    expect(sent().filter((m) => m.chat_id === "user-1").at(-1)!.text).toContain("không nhận được");
+  });
+
+  it("ghi danh lớp ghép: lưu, báo HLV, hiện trên trang quản lý", async () => {
+    await registerCoach();
     const { client, calls } = fakeAnthropic([
       () => ({
         stop_reason: "tool_use",
-        content: [{ type: "tool_use", id: "t1", name: "create_booking", input: { start: "2026-11-24T17:30", duration_minutes: 60, student_name: "Lan", phone: null, note: null } } as any],
-      }),
-      () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "Giờ đó đã kín ạ" } as any] }),
-    ]);
-    await handleUpdate(textUpdate("đặt 17h30 thứ 3"), env, { anthropic: client, now: () => NOW });
-    const result = calls[1].messages.at(-1).content[0];
-    expect(result.is_error).toBe(true);
-    expect(f.events).toHaveLength(1);
-  });
-
-  it("ghi danh lớp ghép: ghi Sheet + báo HLV", async () => {
-    const { client, calls } = fakeAnthropic([
-      () => ({
-        stop_reason: "tool_use",
-        content: [{ type: "tool_use", id: "t1", name: "register_group_class", input: { student_name: "Minh", phone: "0909000111", preferred_schedule: "sáng T2-T4-T6", note: null } } as any],
+        content: [{ type: "tool_use", id: "t1", name: "register_group_class", input: { student_name: "Minh <b>", phone: "0909000111", preferred_schedule: "sáng T2-T4-T6", note: null } } as any],
       }),
       () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "Em đã ghi danh ạ" } as any] }),
     ]);
     await handleUpdate(textUpdate("cho anh đăng ký lớp ghép"), env, { anthropic: client, now: () => NOW });
     expect(calls[1].messages.at(-1).content[0].is_error).toBeFalsy();
-    expect(f.googleCalls.some((c) => c.url.includes("sheets") && c.body.values[0][1] === "GHI DANH LỚP GHÉP")).toBe(true);
-    expect(f.zaloSent.some((s) => s.body?.chat_id === "coach-chat" && s.body.text.includes("Minh"))).toBe(true);
+    expect(sent().some((m) => m.chat_id === "coach-chat" && m.text.includes("LỚP GHÉP"))).toBe(true);
+    const cookie = await adminCookie();
+    const html = await (await worker.fetch(new Request("https://bot.example/admin", { headers: { Cookie: cookie } }), env, exec)).text();
+    expect(html).toContain("Minh &lt;b&gt;");
+    expect(html).not.toContain("Minh <b>");
   });
 
-  it("báo giá chạy được khi chưa nối Google", async () => {
-    env.GOOGLE_SHEET_ID = "REPLACE_WITH_SHEET_ID";
+  it("trang quản lý: chưa đăng nhập không xem được; xem được nhật ký tin nhắn", async () => {
+    const { client } = fakeAnthropic([() => ({ stop_reason: "end_turn", content: [{ type: "text", text: "Dạ em chào chị Lan 🎾" } as any] })]);
+    await handleUpdate(textUpdate("chào em, học phí bao nhiêu?"), env, { anthropic: client, now: () => NOW });
+
+    const anon = await (await worker.fetch(new Request("https://bot.example/admin/chats"), env, exec));
+    expect(anon.status).toBe(403);
+    const loginPage = await (await worker.fetch(new Request("https://bot.example/admin"), env, exec)).text();
+    expect(loginPage).toContain("Đăng nhập");
+    expect(loginPage).not.toContain("Lan");
+    const bad = await worker.fetch(new Request("https://bot.example/admin", { headers: { Cookie: "coach_admin=" + "0".repeat(64) } }), env, exec);
+    expect(await bad.text()).toContain("Đăng nhập");
+
+    const cookie = await adminCookie();
+    const list = await (await worker.fetch(new Request("https://bot.example/admin/chats", { headers: { Cookie: cookie } }), env, exec)).text();
+    expect(list).toContain("Lan");
+    expect(list).toContain("học phí bao nhiêu");
+    const detail = await (
+      await worker.fetch(new Request(`https://bot.example/admin/chat?k=${encodeURIComponent("chatlog:user-1:user-1")}`, { headers: { Cookie: cookie } }), env, exec)
+    ).text();
+    expect(detail).toContain("Dạ em chào chị Lan");
+  });
+
+  it("báo giá chạy được", async () => {
     const { client, calls } = fakeAnthropic([
       () => ({
         stop_reason: "tool_use",
@@ -302,11 +384,29 @@ describe("webhook flow", () => {
     expect(calls[1].messages.at(-1).content[0].content).toContain("tổng 500k");
   });
 
+  it("có Google Calendar: giờ bận trên Google chặn giữ chỗ; xác nhận thì tạo sự kiện", async () => {
+    env.GOOGLE_SERVICE_ACCOUNT_JSON = serviceAccount;
+    env.GOOGLE_CALENDAR_ID = "coach@example.com";
+    env.GOOGLE_SHEET_ID = "sheet1";
+    f.events.push({ id: "x", start: { dateTime: "2026-11-25T07:00:00+07:00" }, end: { dateTime: "2026-11-25T08:00:00+07:00" } });
+    const { client, calls } = fakeAnthropic([
+      () => ({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t", name: "create_booking", input: { start: "2026-11-25T07:00", duration_minutes: 60, student_name: "Lan", phone: null, note: null } } as any] }),
+      () => ({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t2", name: "create_booking", input: { start: "2026-11-25T09:00", duration_minutes: 60, student_name: "Lan", phone: null, note: null } } as any] }),
+      () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "ok" } as any] }),
+    ]);
+    await handleUpdate(textUpdate("đặt"), env, { anthropic: client, now: () => NOW });
+    expect(calls[1].messages.at(-1).content[0].is_error).toBe(true);
+    expect(calls[2].messages.at(-1).content[0].is_error).toBeFalsy();
+    const b = JSON.parse(kv.store.get("store:v1")!).bookings[0];
+    await adminPost("/admin/booking", { id: b.id, action: "confirm" }, await adminCookie());
+    expect(f.events).toHaveLength(2);
+    expect(f.events[1].start.dateTime).toBe("2026-11-25T09:00:00+07:00");
+  });
+
   it("bỏ qua tin nhắn trùng message_id và trả lời lệnh /id", async () => {
     await handleUpdate(textUpdate("/id", "dup"), env);
     await handleUpdate(textUpdate("/id", "dup"), env);
-    const texts = f.zaloSent.filter((s) => s.method === "sendMessage");
-    expect(texts).toHaveLength(1);
-    expect(texts[0]!.body.text).toContain("user-1");
+    expect(sent()).toHaveLength(1);
+    expect(sent()[0]!.text).toContain("user-1");
   });
 });

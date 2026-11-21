@@ -1,28 +1,39 @@
 # Bot Zalo "Coach Nguyễn Đức": tư vấn bằng Claude và đặt lịch học tennis
 
-Học viên nhắn tin cho bot Zalo. Claude trả lời câu hỏi về tennis, học phí và khoá học. Khi học viên muốn đặt lịch, bot xem giờ trống trên **Google Calendar** của HLV, đặt hoặc huỷ buổi học và ghi nhật ký vào **Google Sheets**. Mỗi lần có lịch mới hoặc lịch bị huỷ, bot báo cho HLV qua Zalo.
+Học viên nhắn tin cho bot Zalo. Claude trả lời câu hỏi về tennis, học phí và khoá học, đồng thời báo giá chính xác. Khi học viên muốn học 1 kèm 1, bot **giữ chỗ** và báo HLV. HLV bấm **Xác nhận** hoặc **Từ chối** trên trang quản lý, rồi bot tự nhắn lại cho học viên. HLV cũng đọc được toàn bộ tin nhắn khách gửi cho bot trên trang này.
 
 ```
 Học viên (Zalo) ──► Zalo Bot Platform ──webhook──► Cloudflare Worker ──► Claude API
                                                          │
-                                                         ├──► Google Calendar (giờ trống, tạo/huỷ lịch)
-                                                         └──► Google Sheets  (nhật ký đặt/huỷ)
+                                                         ├──► Cloudflare KV (lịch, ghi danh, nhật ký tin nhắn)
+                                                         ├──► Trang quản lý /admin (HLV duyệt lịch, đọc tin nhắn)
+                                                         └──► Google Calendar/Sheets (tuỳ chọn)
 ```
 
 ## Bot làm được gì
 
 | Học viên nhắn | Bot làm |
 |---|---|
-| Hỏi về tennis, học phí, địa điểm | Trả lời theo thông tin trong `src/config.ts` |
-| "Thứ 7 này còn giờ nào không?" | Xem lịch Google Calendar và báo các giờ còn trống |
+| Hỏi về tennis, học phí, địa điểm | Tư vấn chuyên sâu theo thông tin trong `src/config.ts` |
+| "Thứ 7 này còn giờ nào không?" | Báo giờ còn trống, đã trừ các giờ có người giữ chỗ |
 | "Học 1 kèm 1 tối thứ 7 bao nhiêu?" | Tính chính xác học phí 300k/giờ + phí sân theo ngày/giờ |
-| "Cho em đăng ký lớp ghép" | Lấy tên, SĐT, khung giờ mong muốn → ghi Sheet + báo HLV để HLV xếp lớp |
-| "Chốt 17h thứ 3, tên Lan" | Tóm tắt lại, chờ học viên xác nhận rồi tạo lịch, báo HLV và ghi vào Sheet |
-| "Huỷ buổi thứ 3 giúp em" | Huỷ lịch của chính người đó (phải huỷ trước 12 tiếng), báo HLV |
-| `/id` | Trả về chat_id (dùng để lấy ID Zalo của HLV) |
+| "Chốt 7h sáng thứ 4, tên Lan" | Tóm tắt, chờ học viên đồng ý, **giữ chỗ** và báo HLV duyệt |
+| "Lịch của em được chưa?" | Báo trạng thái: chờ HLV xác nhận / đã xác nhận / HLV từ chối |
+| "Cho em đăng ký lớp ghép" | Lấy tên, SĐT, khung giờ mong muốn rồi báo HLV để HLV xếp lớp |
+| "Huỷ buổi thứ 4 giúp em" | Huỷ lịch của chính người đó (lịch đã xác nhận phải huỷ trước 12 tiếng), báo HLV |
 | `/reset` | Bắt đầu cuộc trò chuyện mới |
 
 Các quy tắc như giờ dạy, giờ đặt tối thiểu và chống đặt trùng đều được **kiểm tra trong code**, không phụ thuộc vào AI.
+
+## Dành cho HLV
+
+**Trang quản lý:** `https://tennis-coach-bot.<tên>.workers.dev/admin`. Lần đầu anh nhập mã quản trị (ADMIN_KEY), điện thoại sẽ nhớ trong 30 ngày.
+- **Lịch & ghi danh:** các yêu cầu chờ duyệt có nút **Xác nhận** / **Từ chối** và ô lời nhắn gửi kèm cho học viên. Ngoài ra có danh sách lịch sắp tới (huỷ được), danh sách ghi danh lớp ghép (bấm số điện thoại để gọi) và các lịch gần đây.
+- **Tin nhắn khách:** danh sách khách đã nhắn và toàn bộ hội thoại giữa khách với bot (lưu 180 ngày).
+
+**Bật thông báo Zalo** (làm 1 lần): từ Zalo của HLV, nhắn cho bot `/hlv <ADMIN_KEY>`. Từ đó mỗi yêu cầu đặt lịch, ghi danh hay huỷ lịch sẽ được gửi về Zalo của HLV, kèm link trang quản lý.
+
+> Lưu ý: bot lưu nội dung tin nhắn của khách để HLV xem lại. Theo Nghị định 13/2023 về bảo vệ dữ liệu cá nhân, nên báo cho khách biết điều này, ví dụ trong lời chào của bot hoặc phần mô tả của bot.
 
 ---
 
@@ -50,7 +61,8 @@ Từ đó, mỗi lần code trên GitHub được cập nhật, Cloudflare sẽ 
 
 > Chi phí tham khảo: mặc định dùng Claude Opus 5.5 ở mức suy nghĩ `medium` (tư vấn chuyên sâu). Một cuộc hội thoại đặt lịch tốn khoảng vài trăm đồng đến khoảng 1.000đ. Nếu muốn rẻ hơn, sửa `CLAUDE_MODEL = "claude-haiku-5-5"` trong `wrangler.toml`.
 
-### Bước 2: Chuẩn bị Google Calendar và Google Sheets
+### Bước 2 (tuỳ chọn): Nối Google Calendar và Google Sheets
+Bỏ qua bước này nếu không cần: bot vẫn giữ chỗ và HLV vẫn duyệt lịch bình thường. Khi nối, bot sẽ tránh thêm các giờ anh bận trên Google Calendar, và mỗi lịch được xác nhận sẽ tự xuất hiện trong lịch Google của anh.
 1. Vào https://console.cloud.google.com và tạo một project, ví dụ `tennis-bot`.
 2. Vào **APIs & Services → Library** và bật **Google Calendar API** cùng **Google Sheets API**.
 3. Vào **IAM & Admin → Service Accounts → Create**. Sau khi tạo xong, mở tab **Keys** và chọn **Add key → JSON** để tải file JSON về.
@@ -128,9 +140,11 @@ cp .dev.vars.example .dev.vars && npm run dev   # chạy local
 |---|---|
 | `src/index.ts` | Nhận webhook, các lệnh `/id` và `/reset`, các trang admin |
 | `src/claude.ts` | System prompt, vòng gọi Claude, lưu lịch sử hội thoại trong KV |
-| `src/tools.ts` | Các công cụ: xem giờ trống, báo giá, đặt/xem/huỷ lịch 1 kèm 1, ghi danh lớp ghép |
+| `src/tools.ts` | Các công cụ: xem giờ trống, báo giá, giữ chỗ/xem/huỷ lịch 1 kèm 1, ghi danh lớp ghép |
+| `src/store.ts` | Lưu lịch, ghi danh, nhật ký tin nhắn trong Cloudflare KV |
+| `src/admin.ts` | Trang quản lý cho HLV |
 | `src/pricing.ts` | Tính học phí + phí sân |
-| `src/google.ts` | Google Calendar và Sheets (service account) |
+| `src/google.ts` | Google Calendar và Sheets (tuỳ chọn, service account) |
 | `src/zalo.ts` | Zalo Bot API |
 | `src/config.ts` | **Thông tin kinh doanh: anh/chị sửa file này** |
 | `src/time.ts` | Xử lý giờ Việt Nam |
