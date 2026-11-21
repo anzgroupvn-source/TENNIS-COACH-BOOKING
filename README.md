@@ -48,7 +48,7 @@ Từ đó, mỗi lần code trên GitHub được cập nhật, Cloudflare sẽ 
 2. Vào **Billing** và nạp tiền (tối thiểu khoảng 5 USD).
 3. Vào **API Keys**, chọn **Create Key** rồi lưu lại khoá (dạng `sk-ant-...`).
 
-> Chi phí tham khảo: mặc định dùng Claude Opus 5.5 ở mức suy nghĩ `low`. Một cuộc hội thoại đặt lịch tốn khoảng vài trăm đồng đến khoảng 1.000đ. Nếu muốn rẻ hơn, sửa `CLAUDE_MODEL = "claude-haiku-5-5"` trong `wrangler.toml`.
+> Chi phí tham khảo: mặc định dùng Claude Opus 5.5 ở mức suy nghĩ `medium` (tư vấn chuyên sâu). Một cuộc hội thoại đặt lịch tốn khoảng vài trăm đồng đến khoảng 1.000đ. Nếu muốn rẻ hơn, sửa `CLAUDE_MODEL = "claude-haiku-5-5"` trong `wrangler.toml`.
 
 ### Bước 2: Chuẩn bị Google Calendar và Google Sheets
 1. Vào https://console.cloud.google.com và tạo một project, ví dụ `tennis-bot`.
@@ -115,7 +115,7 @@ Sửa `src/config.ts`, gồm giới thiệu HLV, địa điểm, học phí, gi�
 - Zalo tính **hạn mức tin nhắn/tháng** cho bot. Mỗi tin bot gửi đều bị tính, kể cả tin báo cho HLV (lỗi 429 nghĩa là đã hết hạn mức).
 - Trong **nhóm chat**, bot chỉ nhận tin nhắn khi được @nhắc tên hoặc khi có người trả lời tin của bot (tính năng nhóm của Zalo đang ở bản beta).
 - Bot hiện chỉ đọc tin nhắn chữ, chưa đọc được ảnh, tin thoại hay tệp đính kèm.
-- Mỗi tin nhắn được xử lý trong tối đa khoảng 30 giây (giới hạn của Cloudflare `waitUntil`). Với mức suy nghĩ `low` thì thường đủ. Nếu sau này cần xử lý lâu hơn, có thể chuyển sang Cloudflare Queues.
+- Mỗi tin nhắn được xử lý trong tối đa khoảng 30 giây (giới hạn của Cloudflare `waitUntil`). Với mức suy nghĩ `medium` thì thường đủ. Nếu sau này cần xử lý lâu hơn, có thể chuyển sang Cloudflare Queues.
 
 ## Phát triển
 ```bash

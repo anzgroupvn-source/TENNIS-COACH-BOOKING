@@ -81,7 +81,7 @@ function makeEnv(kv: MemoryKV): Env {
     ADMIN_KEY: "admin",
     ANTHROPIC_API_KEY: "test",
     CLAUDE_MODEL: "claude-opus-5-5",
-    CLAUDE_EFFORT: "low",
+    CLAUDE_EFFORT: "medium",
     BOT_KV: kv as unknown as KVNamespace,
     GOOGLE_SERVICE_ACCOUNT_JSON: "{}",
     GOOGLE_CALENDAR_ID: "coach@example.com",

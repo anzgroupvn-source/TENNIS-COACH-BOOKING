@@ -11,8 +11,8 @@ binding = "BOT_KV"
 [vars]
 # Model Claude. Mặc định Opus 5.5; muốn rẻ hơn có thể đổi sang "claude-haiku-5-5".
 CLAUDE_MODEL = "claude-opus-5-5"
-# Mức suy nghĩ: low | medium | high. "low" cho chat nhanh, rẻ.
-CLAUDE_EFFORT = "low"
+# Mức suy nghĩ: low | medium | high. "medium" cho tư vấn chuyên sâu; "low" nhanh, rẻ hơn.
+CLAUDE_EFFORT = "medium"
 # ID Google Calendar của HLV (thường là email Gmail của HLV).
 GOOGLE_CALENDAR_ID = "REPLACE_WITH_COACH_CALENDAR_ID"
 # ID Google Sheet lưu nhật ký đặt lịch (đoạn giữa /d/ và /edit trong URL).
