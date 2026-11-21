@@ -1,0 +1,23 @@
+{
+  "name": "tennis-coach-booking",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zalo bot cho HLV tennis: tư vấn bằng Claude + đặt lịch qua Google Calendar/Sheets, chạy trên Cloudflare Workers",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.12.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261121.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1",
+    "wrangler": "^4.166.0"
+  }
+}

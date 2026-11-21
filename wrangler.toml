@@ -1,0 +1,31 @@
+name = "tennis-coach-bot"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Lưu lịch sử hội thoại + chống xử lý trùng tin nhắn.
+# Tạo bằng: npx wrangler kv namespace create BOT_KV  -> dán id vào đây.
+[[kv_namespaces]]
+binding = "BOT_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+# Model Claude. Mặc định Opus 5.5; muốn rẻ hơn có thể đổi sang "claude-haiku-5-5".
+CLAUDE_MODEL = "claude-opus-5-5"
+# Mức suy nghĩ: low | medium | high. "low" cho chat nhanh, rẻ.
+CLAUDE_EFFORT = "low"
+# ID Google Calendar của HLV (thường là email Gmail của HLV).
+GOOGLE_CALENDAR_ID = "REPLACE_WITH_COACH_CALENDAR_ID"
+# ID Google Sheet lưu nhật ký đặt lịch (đoạn giữa /d/ và /edit trong URL).
+GOOGLE_SHEET_ID = "REPLACE_WITH_SHEET_ID"
+# Tên tab trong Sheet.
+GOOGLE_SHEET_TAB = "Bookings"
+# Zalo chat_id của HLV để nhận thông báo đặt/huỷ lịch (nhắn "/id" cho bot để lấy). Để trống = không báo.
+COACH_ZALO_CHAT_ID = ""
+
+# Các bí mật — KHÔNG ghi vào file này, đặt bằng `npx wrangler secret put <TÊN>`:
+#   ZALO_BOT_TOKEN               token bot Zalo
+#   ZALO_WEBHOOK_SECRET          chuỗi ngẫu nhiên 8–256 ký tự (Zalo gửi kèm header X-Bot-Api-Secret-Token)
+#   ADMIN_KEY                    chuỗi ngẫu nhiên để gọi /admin/set-webhook
+#   ANTHROPIC_API_KEY            khoá Claude API
+#   GOOGLE_SERVICE_ACCOUNT_JSON  toàn bộ nội dung file JSON của service account Google
